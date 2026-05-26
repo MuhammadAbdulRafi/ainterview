@@ -2,6 +2,11 @@
 
 A new Flutter project.
 
+cara jalanin :
+```
+flutter run --dart-define=OPENROUTER_API_KEY=your_openrouter_key
+```
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
