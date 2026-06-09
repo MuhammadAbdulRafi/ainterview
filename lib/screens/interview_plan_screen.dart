@@ -44,21 +44,7 @@ class _InterviewPlanScreenState extends State<InterviewPlanScreen> {
   }
 
   Future<void> _savePlan() async {
-    final existingPlan = widget.controller.plans.isEmpty
-        ? null
-        : widget.controller.plans.first;
-
-    if (existingPlan == null) {
-      await widget.controller.createPlan(
-        targetDate: _targetDate,
-        level: _level,
-        language: _language,
-      );
-      return;
-    }
-
-    await widget.controller.updatePlan(
-      existingPlan.id,
+    await widget.controller.createPlan(
       targetDate: _targetDate,
       level: _level,
       language: _language,
@@ -98,7 +84,6 @@ class _InterviewPlanScreenState extends State<InterviewPlanScreen> {
                   targetDate: _targetDate,
                   level: _level,
                   language: _language,
-                  hasPlan: widget.controller.plans.isNotEmpty,
                   isLoading: widget.controller.isLoading,
                   onPickDate: _pickTargetDate,
                   onLevelChanged: (level) {
@@ -110,13 +95,25 @@ class _InterviewPlanScreenState extends State<InterviewPlanScreen> {
                   onSave: _savePlan,
                 ),
                 AppSizes.vSpaceLarge,
-                if (widget.controller.plans.isEmpty)
+                if (widget.controller.isLoading)
+                  const _LoadingPlanState()
+                else if (widget.controller.errorMessage != null)
+                  _ErrorPlanState(message: widget.controller.errorMessage!)
+                else if (widget.controller.plans.isEmpty)
                   const _EmptyPlanState()
-                else
-                  _PlanDetail(
-                    plan: widget.controller.plans.first,
-                    controller: widget.controller,
+                else ...[
+                  _PlanList(
+                    plans: widget.controller.plans,
+                    selectedPlanId: widget.controller.selectedPlanId,
+                    onSelected: widget.controller.selectPlan,
                   ),
+                  AppSizes.vSpaceLarge,
+                  if (widget.controller.selectedPlan != null)
+                    _PlanDetail(
+                      plan: widget.controller.selectedPlan!,
+                      controller: widget.controller,
+                    ),
+                ],
               ],
             ),
           );
@@ -131,7 +128,6 @@ class _PlanForm extends StatelessWidget {
     required this.targetDate,
     required this.level,
     required this.language,
-    required this.hasPlan,
     required this.isLoading,
     required this.onPickDate,
     required this.onLevelChanged,
@@ -142,7 +138,6 @@ class _PlanForm extends StatelessWidget {
   final DateTime targetDate;
   final InterviewLevel level;
   final InterviewLanguage language;
-  final bool hasPlan;
   final bool isLoading;
   final VoidCallback onPickDate;
   final ValueChanged<InterviewLevel?> onLevelChanged;
@@ -190,12 +185,108 @@ class _PlanForm extends StatelessWidget {
           ),
           AppSizes.vSpaceLarge,
           CustomButton(
-            text: hasPlan
-                ? 'Regenerate Practice Plan'
-                : 'Generate Practice Plan',
+            text: 'Generate Practice Plan',
             onPressed: isLoading ? null : onSave,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PlanList extends StatelessWidget {
+  const _PlanList({
+    required this.plans,
+    required this.selectedPlanId,
+    required this.onSelected,
+  });
+
+  final List<InterviewPlan> plans;
+  final String? selectedPlanId;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Active Plans', style: AppTextStyles.h2),
+          AppSizes.vSpaceMedium,
+          for (final plan in plans) ...[
+            _PlanSummaryTile(
+              plan: plan,
+              isSelected: plan.id == selectedPlanId,
+              onTap: () => onSelected(plan.id),
+            ),
+            if (plan != plans.last) AppSizes.vSpaceSmall,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanSummaryTile extends StatelessWidget {
+  const _PlanSummaryTile({
+    required this.plan,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final InterviewPlan plan;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final completedCount = plan.scheduleItems
+        .where((item) => item.isCompleted)
+        .length;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppSizes.radiusSmall),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.main.withValues(alpha: 0.08)
+              : Colors.white,
+          border: Border.all(
+            color: isSelected ? AppColors.main : AppColors.border,
+          ),
+          borderRadius: BorderRadius.circular(AppSizes.radiusSmall),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSizes.pMedium),
+          child: Row(
+            children: [
+              Icon(
+                isSelected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: isSelected ? AppColors.main : AppColors.textMuted,
+              ),
+              AppSizes.hSpaceSmall,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${plan.level.label} - ${_formatDate(plan.targetDate)}',
+                      style: AppTextStyles.h3,
+                    ),
+                    AppSizes.vSpaceSmall,
+                    Text(
+                      '${plan.language.label} - $completedCount/${plan.scheduleItems.length} completed',
+                      style: AppTextStyles.caption,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -347,6 +438,42 @@ class _EmptyPlanState extends StatelessWidget {
           AppSizes.vSpaceSmall,
           Text(
             'Choose your interview target and generate a timeline to begin.',
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppColors.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingPlanState extends StatelessWidget {
+  const _LoadingPlanState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _Surface(child: Center(child: CircularProgressIndicator()));
+  }
+}
+
+class _ErrorPlanState extends StatelessWidget {
+  const _ErrorPlanState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline, color: AppColors.danger, size: 32),
+          AppSizes.vSpaceSmall,
+          Text('Could not load plans', style: AppTextStyles.h3),
+          AppSizes.vSpaceSmall,
+          Text(
+            message,
             style: AppTextStyles.bodyMedium.copyWith(
               color: AppColors.textMuted,
             ),

@@ -58,6 +58,10 @@ void main() {
         (requestBody?['messages'] as List<dynamic>).first['role'],
         'system',
       );
+      expect(
+        (requestBody?['messages'] as List<dynamic>).first['content'],
+        contains('Redirect unrelated'),
+      );
     });
 
     test('falls back to the next model when a model request fails', () async {
@@ -117,7 +121,16 @@ void main() {
                       'communicationFeedback': 'Clear and concise.',
                       'technicalFeedback': 'Add more architecture trade-offs.',
                       'improvementAreas': ['Testing strategy'],
-                      'recommendations': ['Practice system design'],
+                      'recommendations': [
+                        {
+                          'id': 'recommendation_1',
+                          'title': 'Practice system design',
+                          'description':
+                              'Design one offline-first mobile sync flow and explain trade-offs.',
+                          'level': 'Senior Dev',
+                          'stage': 'Technical',
+                        },
+                      ],
                     }),
                   },
                 },
@@ -145,7 +158,17 @@ void main() {
       expect(review.communicationFeedback, 'Clear and concise.');
       expect(review.technicalFeedback, contains('architecture'));
       expect(review.improvementAreas, ['Testing strategy']);
-      expect(review.recommendations, ['Practice system design']);
+      expect(review.level, InterviewLevel.senior);
+      expect(review.stage, InterviewStage.technical);
+      expect(review.language, InterviewLanguage.english);
+      expect(review.recommendations.single.id, 'recommendation_1');
+      expect(review.recommendations.single.title, 'Practice system design');
+      expect(
+        review.recommendations.single.description,
+        contains('offline-first'),
+      );
+      expect(review.recommendations.single.level, InterviewLevel.senior);
+      expect(review.recommendations.single.stage, InterviewStage.technical);
     });
   });
 }

@@ -4,6 +4,7 @@ import 'package:ainterview/models/interview_enums.dart';
 import 'package:ainterview/models/interview_message.dart';
 import 'package:ainterview/providers/interview_session_controller.dart';
 import 'package:ainterview/services/ai_interview_service.dart';
+import 'package:ainterview/services/interview_session_repository.dart';
 
 void main() {
   group('InterviewSessionController', () {
@@ -52,10 +53,15 @@ void main() {
 
       expect(controller.isEnded, isTrue);
       expect(review.summary, contains('Senior Dev Technical'));
+      expect(review.level, InterviewLevel.senior);
+      expect(review.stage, InterviewStage.technical);
+      expect(review.language, InterviewLanguage.english);
       expect(review.communicationFeedback, isNotEmpty);
       expect(review.technicalFeedback, contains('architecture'));
       expect(review.improvementAreas, isNotEmpty);
       expect(review.recommendations, isNotEmpty);
+      expect(review.recommendations.first.level, InterviewLevel.senior);
+      expect(review.recommendations.first.stage, InterviewStage.technical);
     });
 
     test('rejects answers after the session has ended', () async {
@@ -75,5 +81,74 @@ void main() {
         throwsStateError,
       );
     });
+
+    test(
+      'redirects irrelevant candidate answers without advancing AI prompt',
+      () async {
+        final controller = InterviewSessionController(
+          aiService: MockAiInterviewService(),
+        );
+
+        await controller.start(
+          level: InterviewLevel.junior,
+          stage: InterviewStage.technical,
+          language: InterviewLanguage.indonesian,
+        );
+        await controller.sendUserAnswer('asdf qwer zzzz');
+
+        expect(controller.messages, hasLength(3));
+        expect(controller.messages[1].sender, InterviewMessageSender.user);
+        expect(controller.messages[2].sender, InterviewMessageSender.ai);
+        expect(controller.messages[2].text, contains('belum sesuai konteks'));
+        expect(controller.messages[2].text, contains('Junior Dev Technical'));
+      },
+    );
+
+    test(
+      'saves ended sessions with filterable level and interview type metadata',
+      () async {
+        final repository = InMemoryInterviewSessionRepository();
+        final controller = InterviewSessionController(
+          aiService: MockAiInterviewService(),
+          sessionRepository: repository,
+          userId: 'user_1',
+        );
+
+        await controller.start(
+          level: InterviewLevel.senior,
+          stage: InterviewStage.technical,
+          language: InterviewLanguage.indonesian,
+          linkedPlanId: 'plan_1',
+        );
+        await controller.sendUserAnswer(
+          'Saya akan memakai Clean Architecture dan test pyramid.',
+        );
+
+        final review = await controller.endAndReview();
+        final seniorTechnicalSessions = await repository.fetchSessions(
+          'user_1',
+          level: InterviewLevel.senior,
+          stage: InterviewStage.technical,
+        );
+        final juniorHrSessions = await repository.fetchSessions(
+          'user_1',
+          level: InterviewLevel.junior,
+          stage: InterviewStage.hr,
+        );
+
+        expect(seniorTechnicalSessions, hasLength(1));
+        expect(seniorTechnicalSessions.single.level, InterviewLevel.senior);
+        expect(seniorTechnicalSessions.single.stage, InterviewStage.technical);
+        expect(
+          seniorTechnicalSessions.single.language,
+          InterviewLanguage.indonesian,
+        );
+        expect(seniorTechnicalSessions.single.linkedPlanId, 'plan_1');
+        expect(seniorTechnicalSessions.single.messages, hasLength(3));
+        expect(seniorTechnicalSessions.single.review?.id, review.id);
+        expect(seniorTechnicalSessions.single.endedAt, isNotNull);
+        expect(juniorHrSessions, isEmpty);
+      },
+    );
   });
 }

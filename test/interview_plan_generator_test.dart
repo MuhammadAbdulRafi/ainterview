@@ -31,7 +31,7 @@ void main() {
       expect(map['level'], 'Junior Dev');
       expect(map['language'], 'Indonesian');
       expect(map['createdAt'], createdAt.toIso8601String());
-      expect(map['scheduleItems'], isA<List<Map<String, Object>>>());
+      expect(map['scheduleItems'], isA<List<Map<String, Object?>>>());
 
       final parsed = InterviewPlan.fromMap('plan_1', map);
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
@@ -5,16 +7,26 @@ import '../constants/app_sizes.dart';
 import '../constants/app_text_styles.dart';
 import '../models/interview_enums.dart';
 import '../models/interview_message.dart';
+import '../models/interview_preparation_context.dart';
 import '../models/interview_review.dart';
+import '../providers/interview_plan_controller.dart';
 import '../providers/interview_session_controller.dart';
 import '../services/ai_interview_service.dart';
+import '../services/interview_session_repository.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/custom_dropdown.dart';
 
 class InterviewSessionScreen extends StatefulWidget {
-  const InterviewSessionScreen({super.key, required this.aiService});
+  const InterviewSessionScreen({
+    super.key,
+    required this.aiService,
+    this.planController,
+    this.sessionRepository,
+  });
 
   final AiInterviewService aiService;
+  final InterviewPlanController? planController;
+  final InterviewSessionRepository? sessionRepository;
 
   @override
   State<InterviewSessionScreen> createState() => _InterviewSessionScreenState();
@@ -30,7 +42,10 @@ class _InterviewSessionScreenState extends State<InterviewSessionScreen> {
   @override
   void initState() {
     super.initState();
-    _controller = InterviewSessionController(aiService: widget.aiService);
+    _controller = InterviewSessionController(
+      aiService: widget.aiService,
+      sessionRepository: widget.sessionRepository,
+    );
   }
 
   @override
@@ -41,20 +56,76 @@ class _InterviewSessionScreenState extends State<InterviewSessionScreen> {
   }
 
   Future<void> _startSession() async {
-    await _controller.start(level: _level, stage: _stage, language: _language);
+    FocusScope.of(context).unfocus();
+    final activePlan = widget.planController?.activePlan;
+    final preparationContext = activePlan == null
+        ? null
+        : InterviewPreparationContext.fromPlan(activePlan);
+    final sessionLevel = activePlan?.level ?? _level;
+    final sessionLanguage = activePlan?.language ?? _language;
+
+    if (activePlan != null &&
+        (_level != sessionLevel || _language != sessionLanguage)) {
+      setState(() {
+        _level = sessionLevel;
+        _language = sessionLanguage;
+      });
+    }
+
+    await _controller.start(
+      level: sessionLevel,
+      stage: _stage,
+      language: sessionLanguage,
+      linkedPlanId: activePlan?.id,
+      preparationContext: preparationContext,
+    );
   }
 
   Future<void> _sendAnswer() async {
+    FocusScope.of(context).unfocus();
     final answer = _answerController.text;
     _answerController.clear();
     await _controller.sendUserAnswer(answer);
+  }
+
+  void _endSession() {
+    FocusScope.of(context).unfocus();
+    unawaited(_endSessionSafely());
+  }
+
+  Future<void> _endSessionSafely() async {
+    try {
+      await _controller.endAndReview();
+    } catch (_) {
+      // The controller exposes the user-facing error state.
+    }
+  }
+
+  Future<void> _addReviewToActivePlan() async {
+    final planController = widget.planController;
+    final activePlan = planController?.activePlan;
+    final review = _controller.review;
+
+    if (planController == null || activePlan == null || review == null) {
+      return;
+    }
+
+    await planController.appendReviewRecommendations(
+      activePlan.id,
+      reviewId: review.id,
+      recommendations: review.recommendations,
+    );
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Mock Interview', style: AppTextStyles.h2),
+        title: Text('AI Interview', style: AppTextStyles.h2),
         backgroundColor: Colors.white,
         elevation: 0,
         bottom: PreferredSize(
@@ -65,11 +136,14 @@ class _InterviewSessionScreenState extends State<InterviewSessionScreen> {
       body: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) {
+          final preparationContext = _activePreparationContext();
           if (_controller.messages.isEmpty) {
             return _SetupView(
               level: _level,
               stage: _stage,
               language: _language,
+              preparationContext: preparationContext,
+              errorMessage: _controller.errorMessage,
               isBusy: _controller.isBusy,
               onLevelChanged: (level) {
                 if (level != null) setState(() => _level = level);
@@ -87,16 +161,25 @@ class _InterviewSessionScreenState extends State<InterviewSessionScreen> {
           return _SessionView(
             controller: _controller,
             answerController: _answerController,
+            planController: widget.planController,
+            onAddReviewToActivePlan: _addReviewToActivePlan,
             onSend: _controller.isBusy || _controller.isEnded
                 ? null
                 : _sendAnswer,
             onEnd: _controller.isBusy || _controller.isEnded
                 ? null
-                : _controller.endAndReview,
+                : _endSession,
           );
         },
       ),
     );
+  }
+
+  InterviewPreparationContext? _activePreparationContext() {
+    final activePlan = widget.planController?.activePlan;
+    return activePlan == null
+        ? null
+        : InterviewPreparationContext.fromPlan(activePlan);
   }
 }
 
@@ -105,6 +188,8 @@ class _SetupView extends StatelessWidget {
     required this.level,
     required this.stage,
     required this.language,
+    required this.preparationContext,
+    required this.errorMessage,
     required this.isBusy,
     required this.onLevelChanged,
     required this.onStageChanged,
@@ -115,6 +200,8 @@ class _SetupView extends StatelessWidget {
   final InterviewLevel level;
   final InterviewStage stage;
   final InterviewLanguage language;
+  final InterviewPreparationContext? preparationContext;
+  final String? errorMessage;
   final bool isBusy;
   final ValueChanged<InterviewLevel?> onLevelChanged;
   final ValueChanged<InterviewStage?> onStageChanged;
@@ -137,6 +224,14 @@ class _SetupView extends StatelessWidget {
             ),
           ),
           AppSizes.vSpaceLarge,
+          if (preparationContext != null) ...[
+            _PreparationNotice(context: preparationContext!),
+            AppSizes.vSpaceMedium,
+          ],
+          if (errorMessage != null) ...[
+            _ErrorBanner(message: errorMessage!),
+            AppSizes.vSpaceMedium,
+          ],
           _Surface(
             child: Column(
               children: [
@@ -186,7 +281,7 @@ class _SetupView extends StatelessWidget {
                 ),
                 AppSizes.vSpaceLarge,
                 CustomButton(
-                  text: 'Start Mock Interview',
+                  text: 'Start AI Interview',
                   onPressed: isBusy ? null : onStart,
                 ),
               ],
@@ -202,12 +297,16 @@ class _SessionView extends StatelessWidget {
   const _SessionView({
     required this.controller,
     required this.answerController,
+    required this.planController,
+    required this.onAddReviewToActivePlan,
     required this.onSend,
     required this.onEnd,
   });
 
   final InterviewSessionController controller;
   final TextEditingController answerController;
+  final InterviewPlanController? planController;
+  final Future<void> Function() onAddReviewToActivePlan;
   final VoidCallback? onSend;
   final VoidCallback? onEnd;
 
@@ -256,8 +355,19 @@ class _SessionView extends StatelessWidget {
               children: [
                 for (final message in controller.messages)
                   _MessageBubble(message: message),
+                if (controller.errorMessage != null)
+                  _ErrorBanner(message: controller.errorMessage!),
+                if (controller.errorMessage != null) AppSizes.vSpaceSmall,
                 if (controller.review != null)
-                  _ReviewPanel(review: controller.review!),
+                  _ReviewPanel(
+                    review: controller.review!,
+                    hasActivePlan: planController?.activePlan != null,
+                    isLinkedToActivePlan: _isReviewLinkedToActivePlan(
+                      controller.review!,
+                      planController,
+                    ),
+                    onAddToActivePlan: onAddReviewToActivePlan,
+                  ),
               ],
             ),
           ),
@@ -313,6 +423,20 @@ class _SessionView extends StatelessWidget {
       ],
     );
   }
+
+  bool _isReviewLinkedToActivePlan(
+    InterviewReview review,
+    InterviewPlanController? planController,
+  ) {
+    final activePlan = planController?.activePlan;
+    if (activePlan == null) {
+      return false;
+    }
+
+    return activePlan.scheduleItems.any(
+      (item) => item.sourceReviewId == review.id,
+    );
+  }
 }
 
 class _MessageBubble extends StatelessWidget {
@@ -347,9 +471,17 @@ class _MessageBubble extends StatelessWidget {
 }
 
 class _ReviewPanel extends StatelessWidget {
-  const _ReviewPanel({required this.review});
+  const _ReviewPanel({
+    required this.review,
+    required this.hasActivePlan,
+    required this.isLinkedToActivePlan,
+    required this.onAddToActivePlan,
+  });
 
   final InterviewReview review;
+  final bool hasActivePlan;
+  final bool isLinkedToActivePlan;
+  final Future<void> Function() onAddToActivePlan;
 
   @override
   Widget build(BuildContext context) {
@@ -367,6 +499,27 @@ class _ReviewPanel extends StatelessWidget {
           Text('Technical', style: AppTextStyles.h3),
           Text(review.technicalFeedback, style: AppTextStyles.caption),
           AppSizes.vSpaceMedium,
+          Text('Improvement Areas', style: AppTextStyles.h3),
+          AppSizes.vSpaceSmall,
+          for (final area in review.improvementAreas)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSizes.pSmall),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.flag_outlined,
+                    color: AppColors.warning,
+                    size: 18,
+                  ),
+                  AppSizes.hSpaceSmall,
+                  Expanded(child: Text(area, style: AppTextStyles.bodyMedium)),
+                ],
+              ),
+            ),
+          AppSizes.vSpaceMedium,
+          Text('Recommendations', style: AppTextStyles.h3),
+          AppSizes.vSpaceSmall,
           for (final recommendation in review.recommendations)
             Padding(
               padding: const EdgeInsets.only(bottom: AppSizes.pSmall),
@@ -380,15 +533,100 @@ class _ReviewPanel extends StatelessWidget {
                   ),
                   AppSizes.hSpaceSmall,
                   Expanded(
-                    child: Text(
-                      recommendation,
-                      style: AppTextStyles.bodyMedium,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          recommendation.title,
+                          style: AppTextStyles.bodyMedium,
+                        ),
+                        Text(
+                          recommendation.description,
+                          style: AppTextStyles.caption,
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
+          AppSizes.vSpaceSmall,
+          if (isLinkedToActivePlan)
+            Text(
+              'Added to active plan',
+              style: AppTextStyles.caption.copyWith(color: AppColors.success),
+            )
+          else if (!hasActivePlan)
+            Text(
+              'Create a plan first to add these recommendations.',
+              style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+            )
+          else
+            CustomButton(
+              text: 'Add to Active Plan',
+              onPressed: onAddToActivePlan,
+            ),
         ],
+      ),
+    );
+  }
+}
+
+class _PreparationNotice extends StatelessWidget {
+  const _PreparationNotice({required this.context});
+
+  final InterviewPreparationContext context;
+
+  @override
+  Widget build(BuildContext widgetContext) {
+    return _Surface(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.event_available_outlined, color: AppColors.main),
+          AppSizes.hSpaceSmall,
+          Expanded(
+            child: Text(
+              context.userSummary(context.targetLanguage),
+              style: AppTextStyles.bodyMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.danger.withValues(alpha: 0.08),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
+        borderRadius: BorderRadius.circular(AppSizes.radiusSmall),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSizes.pMedium),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.error_outline, color: AppColors.danger, size: 20),
+            AppSizes.hSpaceSmall,
+            Expanded(
+              child: Text(
+                message,
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.danger,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

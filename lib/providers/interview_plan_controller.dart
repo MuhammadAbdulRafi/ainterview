@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/interview_enums.dart';
 import '../models/interview_plan.dart';
+import '../models/review_recommendation.dart';
 import '../models/schedule_item.dart';
 import '../services/interview_plan_generator.dart';
 import '../services/interview_plan_repository.dart';
@@ -22,8 +23,28 @@ class InterviewPlanController extends ChangeNotifier {
   List<InterviewPlan> _plans = [];
   bool _isLoading = false;
   String? _errorMessage;
+  String? _selectedPlanId;
 
   List<InterviewPlan> get plans => List.unmodifiable(_plans);
+
+  InterviewPlan? get activePlan => selectedPlan;
+
+  String? get selectedPlanId => _selectedPlanId;
+
+  InterviewPlan? get selectedPlan {
+    final selectedId = _selectedPlanId;
+    if (selectedId == null) {
+      return _plans.isEmpty ? null : _plans.first;
+    }
+
+    for (final plan in _plans) {
+      if (plan.id == selectedId) {
+        return plan;
+      }
+    }
+
+    return _plans.isEmpty ? null : _plans.first;
+  }
 
   bool get isLoading => _isLoading;
 
@@ -33,6 +54,7 @@ class InterviewPlanController extends ChangeNotifier {
     _setLoading(true);
     try {
       _plans = await _repository.fetchPlans(_userId);
+      _syncSelectedPlan();
       _errorMessage = null;
     } catch (error) {
       _errorMessage = error.toString();
@@ -62,6 +84,8 @@ class InterviewPlanController extends ChangeNotifier {
 
     final savedPlan = await _repository.savePlan(_userId, plan);
     _upsertPlan(savedPlan);
+    _selectedPlanId = savedPlan.id;
+    notifyListeners();
     return savedPlan;
   }
 
@@ -87,6 +111,12 @@ class InterviewPlanController extends ChangeNotifier {
     final savedPlan = await _repository.savePlan(_userId, updatedPlan);
     _upsertPlan(savedPlan);
     return savedPlan;
+  }
+
+  void selectPlan(String planId) {
+    _findPlan(planId);
+    _selectedPlanId = planId;
+    notifyListeners();
   }
 
   Future<InterviewPlan> toggleScheduleItem(
@@ -116,9 +146,50 @@ class InterviewPlanController extends ChangeNotifier {
     return savedPlan;
   }
 
+  Future<InterviewPlan> appendReviewRecommendations(
+    String planId, {
+    required String reviewId,
+    required List<ReviewRecommendation> recommendations,
+  }) async {
+    final currentPlan = _findPlan(planId);
+    if (recommendations.isEmpty) {
+      return currentPlan;
+    }
+
+    final lastDayOffset = currentPlan.scheduleItems.isEmpty
+        ? 0
+        : currentPlan.scheduleItems
+              .map((item) => item.dayOffset)
+              .reduce((first, second) => first > second ? first : second);
+    final recommendationItems = [
+      for (var index = 0; index < recommendations.length; index++)
+        ScheduleItem(
+          dayOffset: lastDayOffset + index + 1,
+          title: recommendations[index].title,
+          description: recommendations[index].description,
+          sourceReviewId: reviewId,
+          sourceRecommendationId: recommendations[index].id,
+        ),
+    ];
+
+    final savedPlan = await _repository.savePlan(
+      _userId,
+      currentPlan.copyWith(
+        scheduleItems: [...currentPlan.scheduleItems, ...recommendationItems],
+      ),
+    );
+    _upsertPlan(savedPlan);
+    return savedPlan;
+  }
+
   Future<void> deletePlan(String planId) async {
     await _repository.deletePlan(_userId, planId);
     _plans = _plans.where((plan) => plan.id != planId).toList();
+    if (_selectedPlanId == planId) {
+      _selectedPlanId = _plans.isEmpty ? null : _plans.first.id;
+    } else {
+      _syncSelectedPlan();
+    }
     notifyListeners();
   }
 
@@ -144,7 +215,22 @@ class InterviewPlanController extends ChangeNotifier {
     _plans.sort(
       (first, second) => first.targetDate.compareTo(second.targetDate),
     );
+    _syncSelectedPlan();
     notifyListeners();
+  }
+
+  void _syncSelectedPlan() {
+    if (_plans.isEmpty) {
+      _selectedPlanId = null;
+      return;
+    }
+
+    final selectedId = _selectedPlanId;
+    final hasSelection =
+        selectedId != null && _plans.any((plan) => plan.id == selectedId);
+    if (!hasSelection) {
+      _selectedPlanId = _plans.first.id;
+    }
   }
 
   void _setLoading(bool value) {

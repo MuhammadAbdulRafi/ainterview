@@ -6,6 +6,7 @@ import 'screens/interview_session_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/ai_interview_service.dart';
 import 'services/interview_plan_repository.dart';
+import 'services/interview_session_repository.dart';
 import 'services/open_router_ai_interview_service.dart';
 
 void main() {
@@ -13,7 +14,9 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.aiService});
+
+  final AiInterviewService? aiService;
 
   @override
   Widget build(BuildContext context) {
@@ -30,16 +33,19 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: AppColors.background,
       ),
-      home: const SplashNavigationWrapper(),
+      home: SplashNavigationWrapper(aiService: aiService),
     );
   }
 }
 
 class SplashNavigationWrapper extends StatefulWidget {
-  const SplashNavigationWrapper({super.key});
+  const SplashNavigationWrapper({super.key, this.aiService});
+
+  final AiInterviewService? aiService;
 
   @override
-  State<SplashNavigationWrapper> createState() => _SplashNavigationWrapperState();
+  State<SplashNavigationWrapper> createState() =>
+      _SplashNavigationWrapperState();
 }
 
 class _SplashNavigationWrapperState extends State<SplashNavigationWrapper> {
@@ -56,12 +62,14 @@ class _SplashNavigationWrapperState extends State<SplashNavigationWrapper> {
     if (_showSplash) {
       return SplashScreen(onComplete: _completeSplash);
     }
-    return const MainNavigationWrapper();
+    return MainNavigationWrapper(aiService: widget.aiService);
   }
 }
 
 class MainNavigationWrapper extends StatefulWidget {
-  const MainNavigationWrapper({super.key});
+  const MainNavigationWrapper({super.key, this.aiService});
+
+  final AiInterviewService? aiService;
 
   @override
   State<MainNavigationWrapper> createState() => _MainNavigationWrapperState();
@@ -71,6 +79,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   int _currentIndex = 0;
   static const _openRouterApiKey = String.fromEnvironment('OPENROUTER_API_KEY');
   late final InterviewPlanController _planController;
+  late final InterviewSessionRepository _sessionRepository;
   late final AiInterviewService _aiService;
 
   @override
@@ -80,9 +89,13 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
       repository: InMemoryInterviewPlanRepository(),
       userId: 'demo_user',
     );
-    _aiService = _openRouterApiKey.isEmpty
-        ? MockAiInterviewService()
-        : OpenRouterAiInterviewService(apiKey: _openRouterApiKey);
+    _planController.loadPlans();
+    _sessionRepository = InMemoryInterviewSessionRepository();
+    _aiService =
+        widget.aiService ??
+        (_openRouterApiKey.isEmpty
+            ? MissingOpenRouterApiKeyAiInterviewService()
+            : OpenRouterAiInterviewService(apiKey: _openRouterApiKey));
   }
 
   @override
@@ -95,7 +108,11 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   Widget build(BuildContext context) {
     final pages = [
       InterviewPlanScreen(controller: _planController),
-      InterviewSessionScreen(aiService: _aiService),
+      InterviewSessionScreen(
+        aiService: _aiService,
+        planController: _planController,
+        sessionRepository: _sessionRepository,
+      ),
       const Center(child: Text('Profile and saved reviews will appear here.')),
     ];
 
