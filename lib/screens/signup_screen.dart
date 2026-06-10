@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_sizes.dart';
 import '../constants/app_text_styles.dart';
+import '../services/auth_service.dart';
+import 'main_navigation_wrapper.dart';
 
 class SignupScreen extends StatelessWidget {
   const SignupScreen({super.key});
@@ -23,6 +26,13 @@ class SignupScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 48),
+              Center(
+                child: Image.asset(
+                  'assets/images/ainterview-logo-blue.png',
+                  height: 60,
+                ),
+              ),
+              const SizedBox(height: 16),
               Center(child: Text('Sign up', style: AppTextStyles.h1)),
               const SizedBox(height: 28),
 
@@ -38,7 +48,11 @@ class SignupScreen extends StatelessWidget {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
-                    borderSide: BorderSide(color: AppColors.border),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
+                    borderSide: const BorderSide(color: AppColors.main),
                   ),
                 ),
               ),
@@ -59,7 +73,11 @@ class SignupScreen extends StatelessWidget {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
-                    borderSide: BorderSide(color: AppColors.border),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
+                    borderSide: const BorderSide(color: AppColors.main),
                   ),
                 ),
               ),
@@ -80,7 +98,11 @@ class SignupScreen extends StatelessWidget {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
-                    borderSide: BorderSide(color: AppColors.border),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
+                    borderSide: const BorderSide(color: AppColors.main),
                   ),
                 ),
               ),
@@ -101,7 +123,11 @@ class SignupScreen extends StatelessWidget {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
-                    borderSide: BorderSide(color: AppColors.border),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppSizes.radiusMedium),
+                    borderSide: const BorderSide(color: AppColors.main),
                   ),
                 ),
               ),
@@ -112,10 +138,62 @@ class SignupScreen extends StatelessWidget {
               SizedBox(
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Sign up pressed (UI only)')),
-                    );
+                  onPressed: () async {
+                    final email = emailController.text.trim();
+                    final password = passwordController.text;
+                    final confirm = confirmController.text;
+                    if (nameController.text.trim().isEmpty || email.isEmpty || password.isEmpty || confirm.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please fill all fields')),
+                      );
+                      return;
+                    }
+                    if (password.length < 6) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Password must be at least 6 characters')),
+                      );
+                      return;
+                    }
+                    if (password != confirm) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Passwords do not match')),
+                      );
+                      return;
+                    }
+                    try {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (_) => const Center(child: CircularProgressIndicator()),
+                      );
+                      await AuthService.instance.signUpWithEmail(
+                        name: nameController.text.trim(),
+                        email: email,
+                        password: password,
+                      );
+                      if (context.mounted) {
+                        Navigator.of(context).pop(); // close loading
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (_) => const MainNavigationWrapper()),
+                        );
+                      }
+                    } on FirebaseAuthException catch (e) {
+                      if (context.mounted) Navigator.of(context).pop();
+                      final message = switch (e.code) {
+                        'operation-not-allowed' =>
+                          'Email/password sign-up is disabled in Firebase Console.',
+                        'weak-password' => 'Password is too weak.',
+                        'email-already-in-use' => 'That email is already registered.',
+                        'invalid-email' => 'Please enter a valid email address.',
+                        _ => e.message ?? e.toString(),
+                      };
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(message)),
+                      );
+                    } catch (e) {
+                      if (context.mounted) Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                    }
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.main,
@@ -149,4 +227,3 @@ class SignupScreen extends StatelessWidget {
     );
   }
 }
-
