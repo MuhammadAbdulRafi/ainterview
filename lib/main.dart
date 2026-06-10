@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
 import 'constants/app_colors.dart';
 import 'providers/interview_plan_controller.dart';
 import 'screens/interview_plan_screen.dart';
@@ -8,8 +11,13 @@ import 'services/ai_interview_service.dart';
 import 'services/interview_plan_repository.dart';
 import 'services/interview_session_repository.dart';
 import 'services/open_router_ai_interview_service.dart';
+import 'screens/login_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
 
@@ -21,7 +29,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'UI Components Showcase',
+      title: 'AI Interview Coach',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -62,7 +70,11 @@ class _SplashNavigationWrapperState extends State<SplashNavigationWrapper> {
     if (_showSplash) {
       return SplashScreen(onComplete: _completeSplash);
     }
-    return MainNavigationWrapper(aiService: widget.aiService);
+    // After splash, we usually go to Login or Home. 
+    // The previous implementation was going to MainNavigationWrapper.
+    // However, typical app flow is Splash -> Login -> Main.
+    // Looking at login_screen.dart, it navigates to MainNavigationWrapper on success.
+    return const LoginScreen();
   }
 }
 
