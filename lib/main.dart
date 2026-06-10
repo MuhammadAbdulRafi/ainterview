@@ -4,6 +4,7 @@ import 'providers/interview_plan_controller.dart';
 import 'screens/interview_plan_screen.dart';
 import 'screens/interview_session_screen.dart';
 import 'screens/splash_screen.dart';
+import 'screens/login_screen.dart';
 import 'services/ai_interview_service.dart';
 import 'services/interview_plan_repository.dart';
 import 'services/open_router_ai_interview_service.dart';
@@ -30,7 +31,7 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: AppColors.background,
       ),
-      home: const SplashNavigationWrapper(),
+      home: const LoginScreen(),
     );
   }
 }
