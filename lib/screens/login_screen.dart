@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_sizes.dart';
 import '../constants/app_text_styles.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import 'main_navigation_wrapper.dart';
 import 'signup_screen.dart';
 
@@ -60,6 +61,11 @@ class _LoginScreenState extends State<LoginScreen> {
         password: password,
       );
       if (!mounted) return;
+
+      // Trigger notifications
+      NotificationService.instance.showLoginNotification();
+      NotificationService.instance.schedulePracticeReminder();
+
       // Navigate directly to the main screen
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(

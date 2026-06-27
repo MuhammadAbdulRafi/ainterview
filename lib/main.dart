@@ -9,11 +9,13 @@ import 'services/ai_interview_service.dart';
 import 'services/auth_service.dart';
 import 'services/interview_plan_repository.dart';
 import 'services/interview_session_repository.dart';
+import 'services/notification_service.dart';
 import 'screens/login_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService.instance.initialize();
   runApp(const MyApp());
 }
 
